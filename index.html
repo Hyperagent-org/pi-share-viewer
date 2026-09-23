@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <!--
+      The only hosts this page (and the session rendered inside it) may contact are
+      GitHub's gist API and raw-gist host. The srcdoc iframe inherits this policy, so
+      neither this page nor the shared transcript can send the gist ID or its
+      contents anywhere else. Inline script/style are required because pi's exported
+      session HTML is a single self-contained file.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; connect-src https://api.github.com https://gist.githubusercontent.com; base-uri 'none'; form-action 'none'"
+    />
+    <meta name="referrer" content="no-referrer" />
+    <meta name="robots" content="noindex, nofollow" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Pi session</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #111418;
+        --panel: #1a1f25;
+        --border: #2c333b;
+        --text: #d7dde3;
+        --dim: #8b949e;
+        --accent: #6a9fcc;
+        --mono: ui-monospace, Menlo, Consolas, monospace;
+        --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: var(--bg);
+        color: var(--text);
+        font-family: var(--sans);
+      }
+      .center {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        min-height: 100vh;
+        gap: 1.25rem;
+        padding: 2rem;
+        box-sizing: border-box;
+      }
+      .spinner {
+        width: 40px;
+        height: 40px;
+        border: 3px solid var(--border);
+        border-top-color: var(--accent);
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+      }
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      .muted {
+        font-family: var(--mono);
+        font-size: 14px;
+        color: var(--dim);
+        margin: 0;
+      }
+      .error-box {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 2rem;
+        max-width: 480px;
+        width: 100%;
+        text-align: center;
+      }
+      .error-box h1 {
+        font-size: 1.25rem;
+        margin: 0 0 0.75rem;
+      }
+      .error-box p {
+        color: var(--dim);
+        line-height: 1.6;
+        margin: 0;
+        overflow-wrap: anywhere;
+      }
+      .error-box code {
+        font-family: var(--mono);
+        background: rgba(255, 255, 255, 0.08);
+        padding: 0.1rem 0.35rem;
+        border-radius: 4px;
+      }
+      .preview-frame {
+        position: fixed;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        border: none;
+        background: white;
+      }
+      .hidden {
+        display: none !important;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="loading" class="center">
+      <div class="spinner"></div>
+      <p class="muted">Loading session…</p>
+    </div>
+
+    <div id="error" class="center hidden">
+      <div class="error-box">
+        <h1>Couldn't load session</h1>
+        <p id="error-message"></p>
+      </div>
+    </div>
+
+    <iframe
+      id="preview"
+      class="preview-frame hidden"
+      sandbox="allow-scripts allow-downloads"
+      title="Pi session"
+    ></iframe>
+
+    <script>
+      (function () {
+        "use strict";
+
+        const DEFAULT_FILENAME = "session.html";
+        const GIST_ID_PATTERN = /^[0-9A-Za-z]+$/;
+
+        const loadingEl = document.getElementById("loading");
+        const errorEl = document.getElementById("error");
+        const errorMessageEl = document.getElementById("error-message");
+        const previewEl = document.getElementById("preview");
+
+        function escapeAttribute(value) {
+          return value
+            .replace(/&/g, "&amp;")
+            .replace(/"/g, "&quot;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;");
+        }
+
+        function showError(message) {
+          loadingEl.classList.add("hidden");
+          errorMessageEl.textContent = message;
+          errorEl.classList.remove("hidden");
+        }
+
+        // pi's session template reads these meta tags to build per-message share
+        // links, because a sandboxed srcdoc frame cannot see the parent's location.
+        function showPreview(content, gistId, urlParams) {
+          loadingEl.classList.add("hidden");
+          const baseUrl = location.origin + location.pathname + "#" + gistId;
+          const metaTags =
+            '<meta name="pi-share-base-url" content="' +
+            escapeAttribute(baseUrl) +
+            '">' +
+            '<meta name="pi-url-params" content="' +
+            escapeAttribute(urlParams) +
+            '">';
+          previewEl.srcdoc = content.replace(/<head[^>]*>/i, (head) => head + metaTags);
+          previewEl.classList.remove("hidden");
+        }
+
+        async function fetchGistFile(gistId, fileName) {
+          const res = await fetch("https://api.github.com/gists/" + encodeURIComponent(gistId), {
+            headers: { Accept: "application/vnd.github+json" },
+          });
+          if (res.status === 404) throw new Error("Session not found. It may have been deleted.");
+          if (res.status === 403) throw new Error("GitHub API rate limit reached. Try again later.");
+          if (!res.ok) throw new Error("GitHub API error: " + res.status);
+
+          const gist = await res.json();
+          const file = gist.files && gist.files[fileName];
+          if (!file) {
+            const available = gist.files ? Object.keys(gist.files).join(", ") : "none";
+            throw new Error('File "' + fileName + '" not found in this gist. Available: ' + available);
+          }
+          if (!file.truncated) return file.content;
+
+          const raw = await fetch(file.raw_url);
+          if (!raw.ok) throw new Error("Failed to fetch session content.");
+          return raw.text();
+        }
+
+        // Formats: #GIST_ID, #GIST_ID/file.html, #GIST_ID&leafId=...&targetId=...
+        // The ID lives in the fragment so it never reaches the host serving this page.
+        const query = location.hash.substring(1);
+        if (!query) {
+          showError("No session ID in the URL. Expected: …#GIST_ID");
+          return;
+        }
+        const ampersand = query.indexOf("&");
+        const sessionPath = ampersand >= 0 ? query.substring(0, ampersand) : query;
+        const urlParams = ampersand >= 0 ? query.substring(ampersand + 1) : "";
+        const [gistId, rawFileName] = sessionPath.split("/");
+        if (!gistId || !GIST_ID_PATTERN.test(gistId)) {
+          showError("Invalid session ID.");
+          return;
+        }
+        const fileName = rawFileName ? decodeURIComponent(rawFileName) : DEFAULT_FILENAME;
+
+        fetchGistFile(gistId, fileName)
+          .then((content) => showPreview(content, gistId, urlParams))
+          .catch((err) => showError(err.message));
+      })();
+    </script>
+  </body>
+</html>
