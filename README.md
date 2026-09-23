@@ -3,15 +3,15 @@
 A self-hosted replacement for `https://pi.dev/session/`, the page that renders
 sessions shared with pi's `/share` command.
 
-Live at: https://bpo-ha.github.io/pi-share-viewer/
+Live at: https://hyperagent-org.github.io/pi-share-viewer/
 
 ## Use it
 
 ```sh
-export PI_SHARE_VIEWER_URL="https://bpo-ha.github.io/pi-share-viewer/"
+export PI_SHARE_VIEWER_URL="https://hyperagent-org.github.io/pi-share-viewer/"
 ```
 
-`/share` then prints `https://bpo-ha.github.io/pi-share-viewer/#<gistId>`. The session
+`/share` then prints `https://hyperagent-org.github.io/pi-share-viewer/#<gistId>`. The session
 itself still lives in a secret gist on your GitHub account.
 
 ## Why
